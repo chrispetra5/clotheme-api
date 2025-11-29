@@ -1,0 +1,58 @@
+{
+  "barbie": {
+    "colors": ["pink", "hot pink", "white", "pastel"],
+    "pieces": ["mini dress", "heels", "halter", "platforms"],
+    "silhouette": ["hyper-feminine", "fitted", "glam"],
+    "fabric": ["satin", "spandex"],
+    "required": ["pink"],
+    "avoid": ["dark", "grunge", "baggy"]
+  },
+  "ken": {
+    "colors": ["pastel", "denim", "white"],
+    "pieces": ["denim vest", "tank top", "cowboy hat"],
+    "silhouette": ["camp", "beach"],
+    "fabric": ["denim", "cotton"],
+    "required": ["denim"],
+    "avoid": ["dark", "formal"]
+  },
+  "eleven": {
+    "colors": ["pink", "yellow", "blue", "navy"],
+    "pieces": ["graphic tee", "denim jacket", "romper", "dress"],
+    "silhouette": ["boxy", "80s", "awkward teen"],
+    "fabric": ["cotton", "denim"],
+    "required": ["graphic", "pink"],
+    "avoid": ["heels", "formal", "dark goth"]
+  },
+  "wednesday addams": {
+    "colors": ["black", "white"],
+    "pieces": ["peter pan collar", "braids", "long dress", "loafers"],
+    "silhouette": ["gothic", "monochrome", "structured"],
+    "fabric": ["cotton", "wool"],
+    "required": ["black", "collar"],
+    "avoid": ["colorful", "pastels", "prints"]
+  },
+  "blair waldorf": {
+    "colors": ["navy", "burgundy", "gold", "white"],
+    "pieces": ["headband", "pleated skirt", "cardigan", "tights"],
+    "silhouette": ["preppy", "tailored", "polished"],
+    "fabric": ["tweed", "cashmere", "silk"],
+    "required": ["headband"],
+    "avoid": ["athleisure", "neon", "hoodies"]
+  },
+  "maddy perez": {
+    "colors": ["black", "purple", "silver", "lavender"],
+    "pieces": ["cutout dress", "crop top", "rhinestones", "platforms"],
+    "silhouette": ["sexy", "dramatic", "bold"],
+    "fabric": ["mesh", "satin", "spandex"],
+    "required": ["cutout", "rhinestone"],
+    "avoid": ["casual", "baggy"]
+  },
+  "clark kent smallville": {
+    "colors": ["red", "blue", "grey", "flannel"],
+    "pieces": ["flannel shirt", "henley", "red jacket", "jeans"],
+    "silhouette": ["relaxed", "wholesome", "boy next door"],
+    "fabric": ["flannel", "cotton", "denim"],
+    "required": ["flannel shirt"],
+    "avoid": ["skinny fit", "luxury", "logos"]
+  }
+}
