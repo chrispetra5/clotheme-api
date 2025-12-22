@@ -24,7 +24,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // --------------------
-// OpenAI Client
+// OpenAI Client (optional, not used for scoring)
 // --------------------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -38,8 +38,7 @@ app.get("/api/test", (req, res) => {
 });
 
 // --------------------
-// PRODUCTS UPLOAD ENDPOINT
-// Step 3.1 (already correct, now stores data)
+// PRODUCTS UPLOAD (Step 3.1)
 // --------------------
 app.post("/api/products/upload", async (req, res) => {
   try {
@@ -82,8 +81,7 @@ app.post("/api/products/upload", async (req, res) => {
 });
 
 // --------------------
-// MATCH ENDPOINT
-// Step 3.2 (THIS IS THE NEW PART)
+// MATCH ENDPOINT (Step 3.2 + 3.3)
 // --------------------
 app.post("/api/match", async (req, res) => {
   try {
@@ -99,58 +97,68 @@ app.post("/api/match", async (req, res) => {
     console.log("🟢 /api/match:", {
       userMessage,
       context,
-      visibleCount: PRODUCT_STORE.visible.length,
-      fullCount: PRODUCT_STORE.full.length
+      visible: PRODUCT_STORE.visible.length,
+      full: PRODUCT_STORE.full.length
     });
 
-    // OPTIONAL AI CALL (not used for matching yet — safe)
-    await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You are a fashion matching engine." },
-        { role: "user", content: userMessage }
-      ]
-    });
+    const color = context?.colors?.[0] || null;
+    const category = context?.categories?.[0] || null;
+    const keywords = context?.keywords || [];
 
     // --------------------
-    // CORE MATCHING LOGIC (Simple + Deterministic)
+    // STEP 3.3 — SCORING FUNCTION
     // --------------------
+    function scoreProduct(p) {
+      let score = 0;
 
-    const colorFilter = context?.colors?.[0] || null;
-    const categoryFilter = context?.categories?.[0] || null;
+      if (color && p.color === color) score += 4;
 
-    // 1️⃣ Precision: match visible products first
-    let matches = PRODUCT_STORE.visible.filter(p => {
-      if (colorFilter && p.color !== colorFilter) return false;
       if (
-        categoryFilter &&
-        !p.title.toLowerCase().includes(categoryFilter)
-      )
-        return false;
-      return true;
-    });
+        category &&
+        p.title.toLowerCase().includes(category.toLowerCase())
+      ) {
+        score += 3;
+      }
 
-    // 2️⃣ Recall: if too few results, expand to full set
-    if (matches.length < 6) {
-      const fallback = PRODUCT_STORE.full.filter(p => {
-        if (colorFilter && p.color !== colorFilter) return false;
-        return true;
-      });
+      for (const k of keywords) {
+        if (p.title.toLowerCase().includes(k.toLowerCase())) {
+          score += 1;
+        }
+      }
 
-      matches = [...matches, ...fallback];
+      return score;
     }
 
-    // 3️⃣ De-duplicate + limit
-    const unique = Array.from(
-      new Map(matches.map(p => [p.image, p])).values()
-    ).slice(0, 24);
+    // 1️⃣ Score visible products (precision)
+    let scored = PRODUCT_STORE.visible
+      .map(p => ({ ...p, _score: scoreProduct(p) }))
+      .filter(p => p._score > 0);
 
-    console.log("🟢 /api/match results:", unique.length);
+    // 2️⃣ Fallback to full set (recall)
+    if (scored.length < 8) {
+      const fallback = PRODUCT_STORE.full
+        .map(p => ({ ...p, _score: scoreProduct(p) }))
+        .filter(p => p._score > 0);
 
-    // IMPORTANT: frontend expects { success: true, results: [] }
+      scored = [...scored, ...fallback];
+    }
+
+    // 3️⃣ Sort, dedupe, limit
+    const results = Array.from(
+      new Map(
+        scored
+          .sort((a, b) => b._score - a._score)
+          .map(p => [p.image, p])
+      ).values()
+    )
+      .slice(0, 24)
+      .map(({ _score, ...p }) => p);
+
+    console.log("🟢 /api/match results:", results.length);
+
     return res.json({
       success: true,
-      results: unique
+      results
     });
   } catch (err) {
     console.error("❌ /api/match error:", err);
@@ -167,4 +175,3 @@ app.post("/api/match", async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
