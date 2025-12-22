@@ -1,3 +1,8 @@
+// In-memory store (reset on deploy — OK for now)
+let PRODUCT_STORE = {
+  visible: [],
+  full: []
+};
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
