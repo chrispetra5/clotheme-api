@@ -1,8 +1,11 @@
+// --------------------
 // In-memory store (reset on deploy — OK for now)
+// --------------------
 let PRODUCT_STORE = {
   visible: [],
   full: []
 };
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -35,8 +38,52 @@ app.get("/api/test", (req, res) => {
 });
 
 // --------------------
+// PRODUCTS UPLOAD ENDPOINT
+// Step 3.1 (already correct, now stores data)
+// --------------------
+app.post("/api/products/upload", async (req, res) => {
+  try {
+    const { products } = req.body;
+
+    if (!products) {
+      return res.status(400).json({
+        success: false,
+        error: "No products provided"
+      });
+    }
+
+    PRODUCT_STORE.visible = Array.isArray(products.visible)
+      ? products.visible
+      : [];
+
+    PRODUCT_STORE.full = Array.isArray(products.full)
+      ? products.full
+      : [];
+
+    console.log("🟢 /api/products/upload stored:", {
+      visible: PRODUCT_STORE.visible.length,
+      full: PRODUCT_STORE.full.length
+    });
+
+    return res.json({
+      success: true,
+      received: {
+        visible: PRODUCT_STORE.visible.length,
+        full: PRODUCT_STORE.full.length
+      }
+    });
+  } catch (err) {
+    console.error("❌ /api/products/upload error:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+// --------------------
 // MATCH ENDPOINT
-// Called by: POST /api/match
+// Step 3.2 (THIS IS THE NEW PART)
 // --------------------
 app.post("/api/match", async (req, res) => {
   try {
@@ -51,10 +98,12 @@ app.post("/api/match", async (req, res) => {
 
     console.log("🟢 /api/match:", {
       userMessage,
-      context
+      context,
+      visibleCount: PRODUCT_STORE.visible.length,
+      fullCount: PRODUCT_STORE.full.length
     });
 
-    // OPTIONAL: AI call (safe + minimal)
+    // OPTIONAL AI CALL (not used for matching yet — safe)
     await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -63,63 +112,48 @@ app.post("/api/match", async (req, res) => {
       ]
     });
 
-    // IMPORTANT:
-    // Your frontend expects { success: true, results: [] }
-    return res.json({
-      success: true,
-      results: [] // backend matching can be added later
+    // --------------------
+    // CORE MATCHING LOGIC (Simple + Deterministic)
+    // --------------------
+
+    const colorFilter = context?.colors?.[0] || null;
+    const categoryFilter = context?.categories?.[0] || null;
+
+    // 1️⃣ Precision: match visible products first
+    let matches = PRODUCT_STORE.visible.filter(p => {
+      if (colorFilter && p.color !== colorFilter) return false;
+      if (
+        categoryFilter &&
+        !p.title.toLowerCase().includes(categoryFilter)
+      )
+        return false;
+      return true;
     });
 
-  } catch (err) {
-    console.error("❌ /api/match error:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-});
-
-// --------------------
-// PRODUCTS UPLOAD ENDPOINT
-// Called by: POST /api/products/upload
-// --------------------
-app.post("/api/products/upload", async (req, res) => {
-  try {
-    const { products } = req.body;
-
-    if (!products) {
-      return res.status(400).json({
-        success: false,
-        error: "No products provided"
+    // 2️⃣ Recall: if too few results, expand to full set
+    if (matches.length < 6) {
+      const fallback = PRODUCT_STORE.full.filter(p => {
+        if (colorFilter && p.color !== colorFilter) return false;
+        return true;
       });
+
+      matches = [...matches, ...fallback];
     }
 
-    const visibleCount = Array.isArray(products.visible)
-      ? products.visible.length
-      : 0;
+    // 3️⃣ De-duplicate + limit
+    const unique = Array.from(
+      new Map(matches.map(p => [p.image, p])).values()
+    ).slice(0, 24);
 
-    const fullCount = Array.isArray(products.full)
-      ? products.full.length
-      : 0;
+    console.log("🟢 /api/match results:", unique.length);
 
-    console.log("🟢 /api/products/upload:", {
-      visible: visibleCount,
-      full: fullCount
-    });
-
-    // TEMP STORAGE / LOGGING ONLY
-    // (You can add DB, embeddings, etc later)
-
+    // IMPORTANT: frontend expects { success: true, results: [] }
     return res.json({
       success: true,
-      received: {
-        visible: visibleCount,
-        full: fullCount
-      }
+      results: unique
     });
-
   } catch (err) {
-    console.error("❌ /api/products/upload error:", err);
+    console.error("❌ /api/match error:", err);
     res.status(500).json({
       success: false,
       error: err.message
@@ -133,3 +167,4 @@ app.post("/api/products/upload", async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
