@@ -1,54 +1,42 @@
-// --------------------
-// In-memory store (reset on deploy — OK for now)
-// --------------------
-let PRODUCT_STORE = {
-  visible: [],
-  full: []
-};
+// ===============================
+// Clotheme.ai Backend — Stable v3.3 (Render)
+// ===============================
 
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import OpenAI from "openai";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --------------------
-// Middleware
-// --------------------
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
 
-// --------------------
-// OpenAI Client (optional, not used for scoring)
-// --------------------
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// ===============================
+// In‑memory store (OK for now)
+// ===============================
+let PRODUCT_STORE = {
+  visible: [],
+  full: []
+};
 
-// --------------------
-// Health Check
-// --------------------
+// ===============================
+// Health
+// ===============================
 app.get("/api/test", (req, res) => {
   res.json({ success: true, message: "API working" });
 });
 
-// --------------------
-// PRODUCTS UPLOAD (Step 3.1)
-// --------------------
-app.post("/api/products/upload", async (req, res) => {
+// ===============================
+// STEP 3.1 — PRODUCT UPLOAD
+// ===============================
+app.post("/api/products/upload", (req, res) => {
   try {
     const { products } = req.body;
-
     if (!products) {
-      return res.status(400).json({
-        success: false,
-        error: "No products provided"
-      });
+      return res.status(400).json({ success: false, error: "No products" });
     }
 
     PRODUCT_STORE.visible = Array.isArray(products.visible)
@@ -59,69 +47,64 @@ app.post("/api/products/upload", async (req, res) => {
       ? products.full
       : [];
 
-    console.log("🟢 /api/products/upload stored:", {
+    console.log("🟢 UPLOAD:", {
       visible: PRODUCT_STORE.visible.length,
       full: PRODUCT_STORE.full.length
     });
 
-    return res.json({
+    res.json({
       success: true,
       received: {
         visible: PRODUCT_STORE.visible.length,
         full: PRODUCT_STORE.full.length
       }
     });
-  } catch (err) {
-    console.error("❌ /api/products/upload error:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+  } catch (e) {
+    console.error("UPLOAD ERROR:", e);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
-// --------------------
-// MATCH ENDPOINT (Step 3.2 + 3.3)
-// --------------------
-app.post("/api/match", async (req, res) => {
+// ===============================
+// STEP 3.2 + 3.3 — MATCHING
+// ===============================
+app.post("/api/match", (req, res) => {
   try {
-    const { userMessage, context } = req.body;
-
+    const { userMessage, context = {} } = req.body;
     if (!userMessage) {
-      return res.status(400).json({
-        success: false,
-        error: "userMessage is required"
-      });
+      return res.status(400).json({ success: false, error: "Missing message" });
     }
 
-    console.log("🟢 /api/match:", {
+    const color = context.colors?.[0] || null;
+    const category = context.categories?.[0] || null;
+    const keywords = context.keywords || [];
+
+    console.log("🟢 MATCH:", {
       userMessage,
-      context,
+      color,
+      category,
       visible: PRODUCT_STORE.visible.length,
       full: PRODUCT_STORE.full.length
     });
 
-    const color = context?.colors?.[0] || null;
-    const category = context?.categories?.[0] || null;
-    const keywords = context?.keywords || [];
-
     // --------------------
-    // STEP 3.3 — SCORING FUNCTION
+    // SCORING LOGIC (FIXED)
     // --------------------
     function scoreProduct(p) {
       let score = 0;
 
-      if (color && p.color === color) score += 4;
+      if (color && p.color === color) score += 5;
 
+      // SOFT category match (important for characters)
       if (
         category &&
-        p.title.toLowerCase().includes(category.toLowerCase())
+        p.title?.toLowerCase().includes(category.toLowerCase())
       ) {
-        score += 3;
+        score += 2;
       }
 
       for (const k of keywords) {
-        if (p.title.toLowerCase().includes(k.toLowerCase())) {
+        if (p.title?.toLowerCase().includes(k.toLowerCase())) {
           score += 1;
         }
       }
@@ -129,13 +112,13 @@ app.post("/api/match", async (req, res) => {
       return score;
     }
 
-    // 1️⃣ Score visible products (precision)
+    // 1️⃣ Precision: visible products
     let scored = PRODUCT_STORE.visible
       .map(p => ({ ...p, _score: scoreProduct(p) }))
       .filter(p => p._score > 0);
 
-    // 2️⃣ Fallback to full set (recall)
-    if (scored.length < 8) {
+    // 2️⃣ Recall: fallback to full catalog
+    if (scored.length < 6) {
       const fallback = PRODUCT_STORE.full
         .map(p => ({ ...p, _score: scoreProduct(p) }))
         .filter(p => p._score > 0);
@@ -143,35 +126,38 @@ app.post("/api/match", async (req, res) => {
       scored = [...scored, ...fallback];
     }
 
-    // 3️⃣ Sort, dedupe, limit
+    // 3️⃣ Sort + dedupe + sanitize
     const results = Array.from(
       new Map(
         scored
           .sort((a, b) => b._score - a._score)
-          .map(p => [p.image, p])
+          .filter(p => p.image && p.title)
+          .map(p => [
+            p.image.startsWith("http")
+              ? p.image
+              : `https://image.hm.com/${p.image}`,
+            {
+              title: p.title,
+              color: p.color || "",
+              image: p.image.startsWith("http")
+                ? p.image
+                : `https://image.hm.com/${p.image}`,
+              link: p.link || "#"
+            }
+          ])
       ).values()
-    )
-      .slice(0, 24)
-      .map(({ _score, ...p }) => p);
+    ).slice(0, 24);
 
-    console.log("🟢 /api/match results:", results.length);
+    console.log("🟢 MATCH RESULTS:", results.length);
 
-    return res.json({
-      success: true,
-      results
-    });
-  } catch (err) {
-    console.error("❌ /api/match error:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    res.json({ success: true, results });
+  } catch (e) {
+    console.error("MATCH ERROR:", e);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
-// --------------------
-// Start Server
-// --------------------
+// ===============================
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on ${PORT}`);
 });
