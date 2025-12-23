@@ -1,7 +1,6 @@
 // ===============================
-// Clotheme.ai Backend — Stable v3.3 (Render)
+// Clotheme.ai Backend — Stable v3.4 (Render)
 // ===============================
-
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -23,6 +22,28 @@ let PRODUCT_STORE = {
 };
 
 // ===============================
+// Helpers
+// ===============================
+function normalizeColor(c = "") {
+  const s = String(c).toLowerCase();
+  if (!s) return "";
+  if (s.includes("pink") || s.includes("rose") || s.includes("blush")) return "pink";
+  if (s.includes("black")) return "black";
+  if (s.includes("white") || s.includes("off-white") || s.includes("off white")) return "white";
+  return s.trim();
+}
+
+function normalizeImage(img) {
+  if (!img) return null;
+  const s = String(img);
+  if (s.startsWith("http")) return s;
+
+  // If you ever send relative H&M paths, this prevents broken images
+  // (safe no-op for normal full URLs)
+  return `https://image.hm.com/${s.replace(/^\/+/, "")}`;
+}
+
+// ===============================
 // Health
 // ===============================
 app.get("/api/test", (req, res) => {
@@ -39,13 +60,21 @@ app.post("/api/products/upload", (req, res) => {
       return res.status(400).json({ success: false, error: "No products" });
     }
 
-    PRODUCT_STORE.visible = Array.isArray(products.visible)
-      ? products.visible
-      : [];
+    PRODUCT_STORE.visible = Array.isArray(products.visible) ? products.visible : [];
+    PRODUCT_STORE.full = Array.isArray(products.full) ? products.full : [];
 
-    PRODUCT_STORE.full = Array.isArray(products.full)
-      ? products.full
-      : [];
+    // normalize a bit so matching is stable
+    PRODUCT_STORE.visible = PRODUCT_STORE.visible.map(p => ({
+      ...p,
+      color: normalizeColor(p.color),
+      image: normalizeImage(p.image)
+    }));
+
+    PRODUCT_STORE.full = PRODUCT_STORE.full.map(p => ({
+      ...p,
+      color: normalizeColor(p.color),
+      image: normalizeImage(p.image)
+    }));
 
     console.log("🟢 UPLOAD:", {
       visible: PRODUCT_STORE.visible.length,
@@ -75,49 +104,49 @@ app.post("/api/match", (req, res) => {
       return res.status(400).json({ success: false, error: "Missing message" });
     }
 
-    const color = context.colors?.[0] || null;
+    const color = context.colors?.[0] ? normalizeColor(context.colors[0]) : null;
     const category = context.categories?.[0] || null;
-    const keywords = context.keywords || [];
+    const keywords = Array.isArray(context.keywords) ? context.keywords : [];
+
+    // Character queries: "Eleven from Stranger Things"
+    const isCharacterQuery = String(userMessage).toLowerCase().includes(" from ");
 
     console.log("🟢 MATCH:", {
       userMessage,
       color,
       category,
+      isCharacterQuery,
       visible: PRODUCT_STORE.visible.length,
       full: PRODUCT_STORE.full.length
     });
 
-    // --------------------
-    // SCORING LOGIC (FIXED)
-    // --------------------
     function scoreProduct(p) {
       let score = 0;
 
+      const title = (p.title || "").toLowerCase();
+
+      // Strong color preference
       if (color && p.color === color) score += 5;
 
-      // SOFT category match (important for characters)
-      if (
-        category &&
-        p.title?.toLowerCase().includes(category.toLowerCase())
-      ) {
+      // IMPORTANT: only apply category for NON-character queries
+      if (!isCharacterQuery && category && title.includes(String(category).toLowerCase())) {
         score += 2;
       }
 
+      // Keywords: small boosts
       for (const k of keywords) {
-        if (p.title?.toLowerCase().includes(k.toLowerCase())) {
-          score += 1;
-        }
+        if (k && title.includes(String(k).toLowerCase())) score += 1;
       }
 
       return score;
     }
 
-    // 1️⃣ Precision: visible products
+    // 1) precision: visible set first
     let scored = PRODUCT_STORE.visible
       .map(p => ({ ...p, _score: scoreProduct(p) }))
       .filter(p => p._score > 0);
 
-    // 2️⃣ Recall: fallback to full catalog
+    // 2) fallback: full set
     if (scored.length < 6) {
       const fallback = PRODUCT_STORE.full
         .map(p => ({ ...p, _score: scoreProduct(p) }))
@@ -126,30 +155,25 @@ app.post("/api/match", (req, res) => {
       scored = [...scored, ...fallback];
     }
 
-    // 3️⃣ Sort + dedupe + sanitize
+    // 3) sort + dedupe + sanitize
     const results = Array.from(
       new Map(
         scored
           .sort((a, b) => b._score - a._score)
-          .filter(p => p.image && p.title)
+          .filter(p => p && p.image && p.title)
           .map(p => [
-            p.image.startsWith("http")
-              ? p.image
-              : `https://image.hm.com/${p.image}`,
+            p.image, // key by image
             {
               title: p.title,
               color: p.color || "",
-              image: p.image.startsWith("http")
-                ? p.image
-                : `https://image.hm.com/${p.image}`,
-              link: p.link || "#"
+              image: p.image,
+              link: p.link && String(p.link).startsWith("http") ? p.link : "#"
             }
           ])
       ).values()
     ).slice(0, 24);
 
     console.log("🟢 MATCH RESULTS:", results.length);
-
     res.json({ success: true, results });
   } catch (e) {
     console.error("MATCH ERROR:", e);
@@ -157,7 +181,7 @@ app.post("/api/match", (req, res) => {
   }
 });
 
-// ===============================
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on ${PORT}`);
 });
+
